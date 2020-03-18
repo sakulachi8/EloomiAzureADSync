@@ -1,2 +1,2 @@
 # EloomiAzureADSync
-This public repository for Azure active directory sync with eloomi
+This public repository for Syncing of Azure Active Directory All Group Users with Eloomi Interface
