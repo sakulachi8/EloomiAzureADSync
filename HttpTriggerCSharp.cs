@@ -22,7 +22,6 @@ namespace EloomiUsersSync
         private static string eloomiClientSecret = "";
         private static string eloomiToken = "";
         [FunctionName("EloomiFunction")]
-// add this too.
         public static async Task<HttpResponseMessage> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)]HttpRequestMessage req, TraceWriter log)
         {
             log.Info($"C# Timer trigger function executed at: {DateTime.Now}");
