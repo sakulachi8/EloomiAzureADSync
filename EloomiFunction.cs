@@ -14,15 +14,17 @@ namespace EloomiUsersSync
     public static class EloomiFunction
     {
         static readonly HttpClient client = new HttpClient();
-        private static string activeDirectoryGroupId = "";
-        private static string activeDirectoryTenantId = "";
-        private static string activeDirectoryClientId = "";
-        private static string activeDirectoryClientSecretId = "";
-        private static string eloomiClientId = "";
-        private static string eloomiClientSecret = "";
+        private static string activeDirectoryGroupId = Environment.GetEnvironmentVariable("activeDirectoryGroupId");
+        private static string activeDirectoryTenantId = Environment.GetEnvironmentVariable("activeDirectoryTenantId");
+        private static string activeDirectoryClientId = Environment.GetEnvironmentVariable("activeDirectoryClientId");
+        private static string activeDirectoryClientSecretId = Environment.GetEnvironmentVariable("activeDirectoryClientSecretId");
+        private static string eloomiClientId = Environment.GetEnvironmentVariable("eloomiClientId");
+        private static string eloomiClientSecret = Environment.GetEnvironmentVariable("eloomiClientSecret");
         private static string eloomiToken = "";
         [FunctionName("EloomiFunction")]
-        public static async Task<HttpResponseMessage> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)]HttpRequestMessage req, TraceWriter log)
+        public static async Task RunAsync([TimerTrigger("0 */12 * * * *")]TimerInfo myTimer, TraceWriter log)
+        
+        //public static async Task<HttpResponseMessage> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)]HttpRequestMessage req, TraceWriter log)
         {
             log.Info($"C# Timer trigger function executed at: {DateTime.Now}");
             string activeDirectoryToken = await GetActiveDirectoryToken();
@@ -63,11 +65,11 @@ namespace EloomiUsersSync
                             List<Dictionary<string, dynamic>> adResponse = tempValue["value"].ToObject<List<Dictionary<string, dynamic>>>();
                             foreach (Dictionary<string, dynamic> userObj in adResponse)
                             {
+                                Dictionary<string, dynamic> userTempObj = new Dictionary<string, dynamic>(userObj);
                                 HttpResponseMessage managerData = await client.GetAsync("https://graph.microsoft.com/v1.0/users/" + userObj["userPrincipalName"] + "/manager?$select=accountEnabled,userPrincipalName,givenName,surname,jobTitle,mobilePhone,department,onPremisesExtensionAttributes");
                                 if (managerData.IsSuccessStatusCode)
                                 {
                                     Dictionary<string, dynamic> userData = await managerData.Content.ReadAsAsync<Dictionary<string, dynamic>>();
-                                    Dictionary<string, dynamic> userTempObj = new Dictionary<string, dynamic>(userObj);
                                     userTempObj.Add("managerData", userData);
                                     adUsersDict.Add(userObj["userPrincipalName"].ToLower(), userTempObj);
                                 }
@@ -96,8 +98,20 @@ namespace EloomiUsersSync
                         bool isUserAlreadyPresent = usersEloomiList.Exists(obj => obj["email"].ToLower() == item.Value["userPrincipalName"].ToLower());
                         bool isUserPresentInActive = usersInActiveEloomiList.Exists(obj => obj["email"].ToLower() == item.Value["userPrincipalName"].ToLower());
 
-
-                        if (!usersEloomiList.Exists(obj => obj["email"].ToLower() == item.Value["managerData"]["userPrincipalName"].ToLower()) && !usersInActiveEloomiList.Exists(obj => obj["email"].ToLower() == item.Value["managerData"]["userPrincipalName"].ToLower())
+                        if (item.Value["userPrincipalName"].ToLower() == "rebecca.scott@energisave.co.uk")
+                        {
+                            log.Info("rebecca.scott@energisave.co.uk present");
+                            log.Info("rebecca.scott@energisave.co.uk present in isUserAlreadyPresent:" + isUserAlreadyPresent);
+                            log.Info("rebecca.scott@energisave.co.uk present in isUserPresentInActive:" + isUserPresentInActive);
+                        }
+                        bool isManagerPresent = false;
+                        try
+                        {
+                            dynamic value = item.Value["managerData"];
+                            isManagerPresent = true;
+                        }
+                        catch(Exception){};
+                        if ( isManagerPresent && !usersEloomiList.Exists(obj => obj["email"].ToLower() == item.Value["managerData"]["userPrincipalName"].ToLower()) && !usersInActiveEloomiList.Exists(obj => obj["email"].ToLower() == item.Value["managerData"]["userPrincipalName"].ToLower())
                             && provisionUsersWithInActiveStatus.Contains(item.Value["managerData"]))
                         {
                             provisionUsersWithInActiveStatus.Add(item.Value["managerData"]);
@@ -108,7 +122,7 @@ namespace EloomiUsersSync
                         {
                             if (!(bool)item.Value["accountEnabled"] && !usersDeprovisionList.Contains(item.Key))
                             {
-                                usersDeprovisionList.Add(item.Key);
+                                usersDeprovisionList.Add(item.Key.ToLower());
                             }
                             else if (!updateUsersList.Contains(item.Value))
                             {
@@ -133,7 +147,7 @@ namespace EloomiUsersSync
                     {
                         if (!adUsersDict.ContainsKey(userObj["email"].ToLower()) && !usersDeprovisionList.Contains(userObj["email"]))
                         {
-                            usersDeprovisionList.Add(userObj["email"]);
+                            usersDeprovisionList.Add(userObj["email"].ToLower());
                         }
                     }
 
@@ -145,7 +159,11 @@ namespace EloomiUsersSync
 
 
                     // Now perform actions on lists
-
+                    log.Info("List count of ProvisionUserWithInActiveStatus: " + provisionUsersWithInActiveStatus.Count);
+                    log.Info("List count of ProvisionNewUser: " + usersProvisionList.Count);
+                    log.Info("List count of UsersDeprovisionList: " + usersDeprovisionList.Count);
+                    log.Info("List count of activateUsersList: " + activateUsersList.Count);
+                    log.Info("List count of updateUsersList: " + updateUsersList.Count);
 
                     // User provision with inactive status
                     foreach (Dictionary<string, dynamic> userObj in provisionUsersWithInActiveStatus)
@@ -232,7 +250,7 @@ namespace EloomiUsersSync
                     log.Info("Message :{0} ", e.Message);
                 }
             }
-            return req.CreateResponse(HttpStatusCode.OK);
+            //return req.CreateResponse(HttpStatusCode.OK);
         }
 
 
@@ -297,7 +315,7 @@ namespace EloomiUsersSync
                 }
             }
 
-            if (userObj["managerData"]["userPrincipalName"] != null)
+            if (userObj.ContainsKey("managerData") && userObj["managerData"]["userPrincipalName"] != null)
             {
                 jsonData.Add("direct_manager_ids", "[\"" + await GetEloomiUserIdFromEmail(userObj["managerData"]["userPrincipalName"]) + "\"]");
             }
@@ -406,7 +424,7 @@ namespace EloomiUsersSync
                 }
             }
 
-            if (userObj["managerData"]["userPrincipalName"] != null)
+            if (userObj.ContainsKey("managerData") && userObj["managerData"]["userPrincipalName"] != null)
             {
                 jsonData.Add("direct_manager_ids", new long[] { await GetEloomiUserIdFromEmail(userObj["managerData"]["userPrincipalName"]) });
             }
@@ -435,7 +453,7 @@ namespace EloomiUsersSync
                 }
             }
 
-            if (userObj["managerData"]["userPrincipalName"] != null)
+            if (userObj.ContainsKey("managerData") && userObj["managerData"]["userPrincipalName"] != null)
             {
                 jsonData.Add("direct_manager_ids", new long[] { await GetEloomiUserIdFromEmail(userObj["managerData"]["userPrincipalName"]) });
             }
